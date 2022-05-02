@@ -83,7 +83,7 @@ contract MADCROW is
         if(crocrow.balanceOf(_msgSender()) < 2) revert NotEnoughCrows();
         
         for (uint256 i = 1; i <= amount;) {
-            purchasePrices[idTracker] = price;
+            purchasePrices[idTracker + i] = price;
             _safeMint(_msgSender(), idTracker + i);
             unchecked{
                 ++i;
@@ -142,17 +142,6 @@ contract MADCROW is
         return tokenIds;
     }
 
-    //INTERFACE FOR CRO CROW WALLET OF OWNER
-    
-    function crowWalletOfOwner(address _owner) internal view returns (uint256[] memory) {
-        uint256 ownerTokenCount = crocrow.balanceOf(_owner);
-        uint256[] memory tokenIds = new uint256[](ownerTokenCount);
-        for (uint256 i; i < ownerTokenCount; i++) {
-            tokenIds[i] = crocrow.tokenOfOwnerByIndex(_owner, i);
-        }
-        return tokenIds;
-    }
-
     //TEAM FUNDS
 
     function withdraw() public onlyOwner{
@@ -176,13 +165,14 @@ contract MADCROW is
 
     function refundAll() public{
         if(!soldOut) revert SaleNotEnded();
-        uint256[] memory crowArray = walletOfOwner(_msgSender());
-        uint256 ownerTokenCount = crowArray.length;
+        uint256 ownerTokenCount = balanceOf(_msgSender());
         uint256 toSend;
+        uint256 tokenId;
         for (uint256 i; i < ownerTokenCount;) {
             unchecked{
-                uint256 amount = purchasePrices[crowArray[i]] - lastPrice;
-                purchasePrices[crowArray[i]] = lastPrice;
+                tokenId = tokenOfOwnerByIndex(_msgSender(),i);
+                uint256 amount = purchasePrices[tokenId] - lastPrice;
+                purchasePrices[tokenId] = lastPrice;
                 toSend+= amount;
                 ++i;
             }
@@ -198,12 +188,13 @@ contract MADCROW is
 
     function refundMulticheck(address _owner) public view returns (uint256) {
         if(!soldOut) revert SaleNotEnded();
-        uint256[] memory crowArray = walletOfOwner(_owner);
-        uint256 ownerTokenCount = crowArray.length;
+        uint256 ownerTokenCount = balanceOf(_owner);
         uint256 toSend;
+        uint256 tokenId;
         for (uint256 i; i < ownerTokenCount;) {
             unchecked{
-                uint256 amount = purchasePrices[crowArray[i]] - lastPrice;
+                tokenId = tokenOfOwnerByIndex(_owner,i);
+                uint256 amount = purchasePrices[tokenId] - lastPrice;
                 toSend+= amount;
                 ++i;
             }
@@ -224,15 +215,16 @@ contract MADCROW is
 
     function claimAirdropAll() public{
         if(!soldOut) revert SaleNotEnded();
-        uint256[] memory crowArray = crowWalletOfOwner(_msgSender());
-        uint256 ownerTokenCount = crowArray.length;
         uint256 airdropAmount = lastPrice * max / 4 / 7777;
+        uint256 ownerTokenCount = crocrow.balanceOf(_msgSender());
         uint256 toSend;
+        uint256 tokenId;
         for (uint256 i; i < ownerTokenCount;) {
+            tokenId = crocrow.tokenOfOwnerByIndex(_msgSender(), i);
             unchecked{
-                if(!airdropClaimed[crowArray[i]]){
+                if(!airdropClaimed[tokenId]){
                     toSend += airdropAmount;
-                    airdropClaimed[crowArray[i]] = true;
+                    airdropClaimed[tokenId] = true;
                 }
                 ++i;
             }
@@ -244,16 +236,17 @@ contract MADCROW is
     //Function for mass claiming for the whales with 200+ CRO CROWs.
     function claimAirdrop100(uint256 index) public{
         if(!soldOut) revert SaleNotEnded();
-        uint256[] memory crowArray = crowWalletOfOwner(_msgSender());
-        uint256 ownerTokenCount = crowArray.length;
-        if(ownerTokenCount < 100 * (index+1)) revert NotEnoughCrows();
         uint256 airdropAmount = lastPrice * max / 4 / 7777;
+        uint256 ownerTokenCount = crocrow.balanceOf(_msgSender());
         uint256 toSend;
+        uint256 tokenId;
+        if(ownerTokenCount < 100 * (index+1)) revert NotEnoughCrows();
         for (uint256 i = 100 * index; i < 100 * (index+1);) {
+            tokenId = crocrow.tokenOfOwnerByIndex(_msgSender(), i);
             unchecked{
-                if(!airdropClaimed[crowArray[i]]){
+                if(!airdropClaimed[tokenId]){
                     toSend += airdropAmount;
-                    airdropClaimed[crowArray[i]] = true;
+                    airdropClaimed[tokenId] = true;
                 }
                 ++i;
             }
@@ -269,13 +262,14 @@ contract MADCROW is
 
     function airdropMulticheck(address _owner) public view returns (uint256) {
         if(!soldOut) revert SaleNotEnded();
-        uint256[] memory crowArray = crowWalletOfOwner(_owner);
-        uint256 ownerTokenCount = crowArray.length;
         uint256 airdropAmount = lastPrice * max / 4 / 7777;
+        uint256 ownerTokenCount = crocrow.balanceOf(_msgSender());
         uint256 toSend;
+        uint256 tokenId;
         for (uint256 i; i < ownerTokenCount;) {
+            tokenId = crocrow.tokenOfOwnerByIndex(_owner, i);
             unchecked{
-                if(!airdropClaimed[crowArray[i]]){
+                if(!airdropClaimed[tokenId]){
                     toSend += airdropAmount;
                 }
                 ++i;
@@ -286,19 +280,11 @@ contract MADCROW is
 
     //TIME
 
-    function secondsPassed() public view returns(uint256){
-        if(block.timestamp < startDate){
-            return 0;
-        }else{
-            return block.timestamp - startDate;
-        }
-    }
-
     function currentSegment() public view returns(uint256){
         if(block.timestamp < startDate){
             return 0;
         }else{
-            uint256 passed = secondsPassed();
+            uint256 passed = block.timestamp - startDate;
             uint256 segmentSize = (endDate-startDate) / segments;
             uint256 current = ((passed - (passed % segmentSize)) / segmentSize) + 1;
             if(current > segments){
