@@ -44,7 +44,8 @@ contract MADCROW is
 
     //TEAM CUT
     bool public rewardsClaimed;
-    
+    address private constant DEAD = 0x000000000000000000000000000000000000dEaD;
+
     //REFUND
     mapping(uint256 => uint256) public purchasePrices;
 
@@ -148,8 +149,10 @@ contract MADCROW is
         if(!soldOut) revert SaleNotEnded();
         if(rewardsClaimed) revert AlreadyClaimed();
         rewardsClaimed = true;
-        uint256 amount = lastPrice * max / 4;
-        mad.transfer(_msgSender(),amount);
+        uint256 teamAmount = lastPrice * max / 4;
+        mad.transfer(_msgSender(),teamAmount);
+        uint256 burnAmount = lastPrice * max / 2;
+        mad.transfer(DEAD,burnAmount);
     }
 
     //REFUNDS
