@@ -109,7 +109,7 @@ contract MADCROW is
 
     function changeStartPrice(uint256 price) external onlyOwner{
         if(block.timestamp >= startDate - (60*60*24) ) revert TimeLocked();
-        if(price =< endPrice) revert BadPrice();
+        if(price <= endPrice) revert BadPrice();
         startPrice = price;
     }
 
