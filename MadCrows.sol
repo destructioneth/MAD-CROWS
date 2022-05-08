@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.0;
+pragma solidity 0.8.13;
 
 import "./IERC20.sol";
 import "./ERC721.sol";
@@ -24,13 +24,15 @@ contract MADCROW is
     error SaleNotStarted();
     error NotEnoughCrows();
     error ZeroMint();
+    error TimeLocked();
+    error BadPrice();
 
     //METADATA
     bool public tokenURIFrozen = false;
     string private baseTokenURI;
     
     //MINT
-    uint256 public max = 3333;
+    uint256 constant public MAX_SUPPLY = 3333;
     uint256 public idTracker;
 
     //DUTCH
@@ -38,7 +40,7 @@ contract MADCROW is
     uint256 public endDate;
     uint256 public startPrice = 100 ether;
     uint256 public endPrice = 10 ether;
-    uint256 public segments = 24;
+    uint256 constant public SEGMENTS = 24;
     uint256 public lastPrice;
     bool public soldOut;
 
@@ -71,13 +73,14 @@ contract MADCROW is
         endDate = startDate + (60 * 60 * 2);
         crocrow = IERC721Enumerable(_crocrow);
         mad = IERC20(_mad);
+        _safeMint(_msgSender(), 0);
     }
 
-    function mint(uint256 amount) public {
+    function mint(uint256 amount) external {
         uint256 price = getCurrentPrice();
         uint256 totalPrice = price * amount;
         if(amount == 0) revert ZeroMint();
-        if((idTracker + amount) > max) revert SoldOut();
+        if((idTracker + amount) > MAX_SUPPLY) revert SoldOut();
         if(block.timestamp < startDate) revert SaleNotStarted();
         if(totalPrice > mad.allowance(_msgSender(),address(this))) revert NoAllowance();
         if(mad.balanceOf(_msgSender()) < totalPrice) revert NoBalance();
@@ -92,7 +95,8 @@ contract MADCROW is
         }
         idTracker += amount;
 
-        if(idTracker == max){
+        if(idTracker == MAX_SUPPLY){
+            purchasePrices[0] = price;
             lastPrice = price;
             soldOut = true;
         }
@@ -103,22 +107,22 @@ contract MADCROW is
 
     //ADMIN CONTROLS
 
-    function changeStartPrice(uint256 price) public onlyOwner{
-        if(soldOut) revert SoldOut();
+    function changeStartPrice(uint256 price) external onlyOwner{
+        if(block.timestamp >= startDate - (60*60*24) ) revert TimeLocked();
+        if(price =< endPrice) revert BadPrice();
         startPrice = price;
     }
 
-    function changeEndPrice(uint256 price) public onlyOwner{
-        if(soldOut) revert SoldOut();
-        lastPrice = price;
+    function changeEndPrice(uint256 price) external onlyOwner{
+        if(block.timestamp >= startDate - (60*60*24) ) revert TimeLocked();
+        if(price >= startPrice) revert BadPrice();
+        endPrice = price;
     }
 
     function changeStartDate(uint256 stamp) public onlyOwner{
+        if(block.timestamp >= startDate - (60*60*24) ) revert TimeLocked();
         startDate = stamp;
-    }
-
-    function changeEndDate(uint256 stamp) public onlyOwner{
-        endDate = stamp;
+        endDate = stamp + (60 * 60 * 2);
     }
 
     function setBaseTokenURI(string memory uri) public onlyOwner {
@@ -134,11 +138,11 @@ contract MADCROW is
         return baseTokenURI;
     }
 
-    function walletOfOwner(address _owner) public view returns (uint256[] memory) {
-        uint256 ownerTokenCount = balanceOf(_owner);
+    function walletOfOwner(address add) external view returns (uint256[] memory) {
+        uint256 ownerTokenCount = balanceOf(add);
         uint256[] memory tokenIds = new uint256[](ownerTokenCount);
         for (uint256 i; i < ownerTokenCount; i++) {
-            tokenIds[i] = tokenOfOwnerByIndex(_owner, i);
+            tokenIds[i] = tokenOfOwnerByIndex(add, i);
         }
         return tokenIds;
     }
@@ -149,15 +153,15 @@ contract MADCROW is
         if(!soldOut) revert SaleNotEnded();
         if(rewardsClaimed) revert AlreadyClaimed();
         rewardsClaimed = true;
-        uint256 teamAmount = lastPrice * max / 4;
+        uint256 teamAmount = lastPrice * MAX_SUPPLY / 4;
         mad.transfer(_msgSender(),teamAmount);
-        uint256 burnAmount = lastPrice * max / 2;
+        uint256 burnAmount = lastPrice * MAX_SUPPLY / 2;
         mad.transfer(DEAD,burnAmount);
     }
 
     //REFUNDS
 
-    function refund(uint256 madCrow) public{
+    function refund(uint256 madCrow) external{
         if(!soldOut) revert SaleNotEnded();
         if(_msgSender() != ownerOf(madCrow)) revert CrowNotOwned();
         uint256 amount = purchasePrices[madCrow] - lastPrice;
@@ -184,19 +188,19 @@ contract MADCROW is
         mad.transfer(_msgSender(),toSend);
     }
 
-    function refundCheck(uint256 madCrow) public view returns(uint256){
+    function refundCheck(uint256 madCrow) external view returns(uint256){
         if(!soldOut) revert SaleNotEnded();
         return purchasePrices[madCrow] - lastPrice;
     }
 
-    function refundMulticheck(address _owner) public view returns (uint256) {
+    function refundMulticheck(address add) external view returns (uint256) {
         if(!soldOut) revert SaleNotEnded();
-        uint256 ownerTokenCount = balanceOf(_owner);
+        uint256 ownerTokenCount = balanceOf(add);
         uint256 toSend;
         uint256 tokenId;
         for (uint256 i; i < ownerTokenCount;) {
             unchecked{
-                tokenId = tokenOfOwnerByIndex(_owner,i);
+                tokenId = tokenOfOwnerByIndex(add,i);
                 uint256 amount = purchasePrices[tokenId] - lastPrice;
                 toSend+= amount;
                 ++i;
@@ -207,18 +211,18 @@ contract MADCROW is
     
     //AIRDROPS
 
-    function claimAirdrop(uint256 crow) public{
+    function claimAirdrop(uint256 crow) external{
         if(!soldOut) revert SaleNotEnded();
         if(_msgSender() != crocrow.ownerOf(crow)) revert CrowNotOwned();
         if(airdropClaimed[crow]) revert AlreadyClaimed();
-        uint256 airdropAmount = lastPrice * max / 4 / 7777;
+        uint256 airdropAmount = lastPrice * MAX_SUPPLY / 4 / 7777;
         airdropClaimed[crow] = true;
         mad.transfer(_msgSender(),airdropAmount);
     }
 
     function claimAirdropAll() public{
         if(!soldOut) revert SaleNotEnded();
-        uint256 airdropAmount = lastPrice * max / 4 / 7777;
+        uint256 airdropAmount = lastPrice * MAX_SUPPLY / 4 / 7777;
         uint256 ownerTokenCount = crocrow.balanceOf(_msgSender());
         uint256 toSend;
         uint256 tokenId;
@@ -237,9 +241,9 @@ contract MADCROW is
     }
 
     //Function for mass claiming for the whales with 200+ CRO CROWs.
-    function claimAirdrop100(uint256 index) public{
+    function claimAirdrop100(uint256 index) external{
         if(!soldOut) revert SaleNotEnded();
-        uint256 airdropAmount = lastPrice * max / 4 / 7777;
+        uint256 airdropAmount = lastPrice * MAX_SUPPLY / 4 / 7777;
         uint256 ownerTokenCount = crocrow.balanceOf(_msgSender());
         uint256 toSend;
         uint256 tokenId;
@@ -258,19 +262,19 @@ contract MADCROW is
         mad.transfer(_msgSender(),toSend);
     }
 
-    function airdropCheck(uint256 crow) public view returns(bool){
+    function airdropCheck(uint256 crow) external view returns(bool){
         if(!soldOut) revert SaleNotEnded();
         return airdropClaimed[crow];
     }
 
-    function airdropMulticheck(address _owner) public view returns (uint256) {
+    function airdropMulticheck(address add) external view returns (uint256) {
         if(!soldOut) revert SaleNotEnded();
-        uint256 airdropAmount = lastPrice * max / 4 / 7777;
-        uint256 ownerTokenCount = crocrow.balanceOf(_msgSender());
+        uint256 airdropAmount = lastPrice * MAX_SUPPLY / 4 / 7777;
+        uint256 ownerTokenCount = crocrow.balanceOf(add);
         uint256 toSend;
         uint256 tokenId;
         for (uint256 i; i < ownerTokenCount;) {
-            tokenId = crocrow.tokenOfOwnerByIndex(_owner, i);
+            tokenId = crocrow.tokenOfOwnerByIndex(add, i);
             unchecked{
                 if(!airdropClaimed[tokenId]){
                     toSend += airdropAmount;
@@ -288,10 +292,10 @@ contract MADCROW is
             return 0;
         }else{
             uint256 passed = block.timestamp - startDate;
-            uint256 segmentSize = (endDate-startDate) / segments;
+            uint256 segmentSize = (endDate-startDate) / SEGMENTS;
             uint256 current = ((passed - (passed % segmentSize)) / segmentSize) + 1;
-            if(current > segments){
-                current = segments+1;
+            if(current > SEGMENTS){
+                current = SEGMENTS+1;
             }
             return current;
         }
@@ -302,6 +306,6 @@ contract MADCROW is
         if(segment == 0){
             return startPrice;
         }
-        return endPrice+((segments - (segment-1)) * (startPrice-endPrice) /segments);
+        return endPrice+((SEGMENTS - (segment-1)) * (startPrice-endPrice) /SEGMENTS);
     }
 }
